@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Gamacraft: a small multiplayer block world to play while Claude works.">
+<style>body{margin:0}</style>
+<title>Gamacraft</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: full-bleed 3D canvas, HUD pinned to the corners, hotbar along the bottom edge like a real block game */
+:root {
+  --sky: #8fc7ff;
+  --ink: #fdf8ec;
+  --shade: rgba(20, 24, 34, 0.72);
+  --shade-strong: rgba(14, 16, 24, 0.9);
+  --grass: #6dbb3c;
+  --gold: #ffd34d;
+  --muted: #b9c2d6;
+  --display: "Pixelify Sans", "Courier New", monospace;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--sky); color: var(--ink); font-family: var(--mono); overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
+#game { position: fixed; inset: 0; display: block; width: 100%; height: 100%; outline: none; }
+.hud { position: fixed; pointer-events: none; font-size: 12px; }
+#crosshair { left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
+#crosshair::before, #crosshair::after { content: ""; position: absolute; background: var(--ink); mix-blend-mode: difference; }
+#crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+#crosshair::after { top: 10px; left: 0; height: 2px; width: 22px; }
+#topleft { top: calc(10px + env(safe-area-inset-top, 0px)); left: max(12px, env(safe-area-inset-left, 0px)); display: grid; gap: 6px; max-width: min(320px, 60vw); }
+.chip { background: var(--shade); padding: 6px 10px; border-radius: 3px; line-height: 1.4; }
+.chip b { font-family: var(--display); font-weight: 700; font-size: 15px; letter-spacing: 0.03em; color: var(--gold); }
+#online { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); }
+.dot.live { background: var(--grass); box-shadow: 0 0 6px var(--grass); }
+#players { display: grid; gap: 2px; }
+#players span { display: flex; gap: 6px; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#players i { width: 10px; height: 10px; display: inline-block; flex: none; border: 1px solid rgba(0,0,0,0.4); }
+#toast { left: 50%; top: calc(18% + env(safe-area-inset-top, 0px)); transform: translateX(-50%); font-family: var(--display); font-size: 18px; background: var(--shade); padding: 6px 14px; border-radius: 3px; opacity: 0; transition: opacity 0.3s; white-space: nowrap; }
+#toast.show { opacity: 1; }
+#hotbar { left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 4px; background: var(--shade); padding: 4px; border-radius: 3px; pointer-events: auto; }
+.slot { width: 44px; height: 44px; position: relative; border: 2px solid transparent; image-rendering: pixelated; cursor: pointer; background: rgba(255,255,255,0.06); padding: 0; }
+.slot canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.slot.sel { border-color: var(--gold); box-shadow: 0 0 0 2px #000 inset; transform: translateY(-4px); }
+.slot small { position: absolute; left: 2px; top: 0; font-size: 10px; color: var(--ink); text-shadow: 1px 1px 0 #000; }
+#blockname { left: 50%; transform: translateX(-50%); bottom: calc(68px + env(safe-area-inset-bottom, 0px)); font-family: var(--display); font-size: 16px; text-shadow: 2px 2px 0 rgba(0,0,0,0.6); }
+#help { right: max(12px, env(safe-area-inset-right, 0px)); top: calc(10px + env(safe-area-inset-top, 0px)); text-align: right; color: var(--ink); }
+#help kbd { font-family: var(--mono); background: rgba(255,255,255,0.14); padding: 0 4px; border-radius: 2px; }
+
+#menu { position: fixed; inset: 0; display: grid; place-items: center; background: linear-gradient(rgba(10,14,28,0.35), rgba(10,14,28,0.75)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px; z-index: 5; }
+.card { background: var(--shade-strong); border: 3px solid #000; box-shadow: 0 0 0 3px #4a5068, 8px 8px 0 rgba(0,0,0,0.4); padding: 22px 22px 18px; width: min(420px, 100%); display: grid; gap: 14px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(38px, 9vw, 56px); line-height: 1; margin: 0; color: var(--gold); text-shadow: 3px 3px 0 #7a4b00, 6px 6px 0 rgba(0,0,0,0.5); letter-spacing: 0.02em; text-wrap: balance; }
+.tag { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); display: grid; gap: 6px; }
+input[type=text] { font: 600 15px var(--mono); padding: 9px 10px; background: #0b0d14; color: var(--ink); border: 2px solid #4a5068; border-radius: 0; }
+input[type=text]:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+#colors { display: flex; gap: 6px; flex-wrap: wrap; }
+.sw { width: 28px; height: 28px; border: 2px solid #000; cursor: pointer; padding: 0; }
+.sw[aria-pressed=true] { outline: 3px solid var(--ink); outline-offset: 1px; }
+.sw:focus-visible { outline: 3px solid var(--gold); }
+#play { font: 700 22px var(--display); letter-spacing: 0.04em; padding: 10px; background: var(--grass); color: #10220a; border: 3px solid #000; box-shadow: inset -4px -4px 0 #3f7d1e, inset 4px 4px 0 #a5e27a; cursor: pointer; }
+#play:hover { filter: brightness(1.08); }
+#play:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 0; }
+.keys dt { color: var(--ink); }
+.keys dd { margin: 0; }
+#mpnote { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.5; }
+#touch { position: fixed; inset: auto 0 0 0; pointer-events: none; }
+.tbtn { position: fixed; pointer-events: auto; width: 62px; height: 62px; border-radius: 50%; background: var(--shade); color: var(--ink); border: 2px solid rgba(255,255,255,0.3); font: 700 13px var(--display); }
+#tjump { right: max(18px, env(safe-area-inset-right, 0px)); bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+#tplace { right: max(90px, calc(72px + env(safe-area-inset-right, 0px))); bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+#tbreak { right: max(18px, env(safe-area-inset-right, 0px)); bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 560px) { #help { display: none; } .slot { width: 34px; height: 34px; } #blockname { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); } }
+@media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+</style>
+</head>
+<body>
+
+<canvas id="game" tabindex="0" aria-label="Gamacraft world"></canvas>
+<div id="crosshair" class="hud"></div>
+<div id="topleft" class="hud">
+  <div class="chip"><b>Gamacraft</b></div>
+  <div class="chip" id="online"><span class="dot" id="netdot"></span><span id="nettext">Solo world</span></div>
+  <div class="chip" id="players" hidden></div>
+</div>
+<div id="help" class="hud chip"><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Shift</kbd> sprint<br>Left click break · Right click place · <kbd>1</kbd>–<kbd>9</kbd> blocks · <kbd>Esc</kbd> menu</div>
+<div id="toast" class="hud"></div>
+<div id="blockname" class="hud"></div>
+<div id="hotbar" class="hud" role="toolbar" aria-label="Blocks"></div>
+<div id="touch" hidden>
+  <button class="tbtn" id="tjump" type="button">Jump</button>
+  <button class="tbtn" id="tbreak" type="button">Break</button>
+  <button class="tbtn" id="tplace" type="button">Place</button>
+</div>
+
+<div id="menu">
+  <form class="card" id="menuform">
+    <h1>Gamacraft</h1>
+    <p class="tag">A small block world to build in while Claude works. Everyone who opens this page shares the same world.</p>
+    <label for="pname">Your name
+      <input type="text" id="pname" maxlength="16" autocomplete="off" placeholder="Steve">
+    </label>
+    <label>Your color <span id="colors"></span></label>
+    <button id="play" type="submit">Play</button>
+    <dl class="keys">
+      <dt>WASD</dt><dd>walk (Shift to sprint)</dd>
+      <dt>Space</dt><dd>jump</dd>
+      <dt>Mouse</dt><dd>look around</dd>
+      <dt>Clicks</dt><dd>left breaks, right places</dd>
+      <dt>1–9 / wheel</dt><dd>pick a block</dd>
+    </dl>
+    <p id="mpnote">Looking for other players…</p>
+  </form>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+"use strict";
+// ---------- world constants ----------
+const W = 64, D = 64, H = 40, CS = 16;            // world size and chunk size
+const SEA = 12;
+const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, SAND = 6, PLANKS = 7, BRICK = 8, GLASS = 9;
+const NAMES = ["Air", "Grass", "Dirt", "Stone", "Log", "Leaves", "Sand", "Planks", "Brick", "Glass"];
+const HOTBAR = [GRASS, DIRT, STONE, LOG, LEAVES, SAND, PLANKS, BRICK, GLASS];
+const SEETHROUGH = new Set([AIR, LEAVES, GLASS]);
+const COLORS = ["#e94f37", "#ffb100", "#6dbb3c", "#2bb3c0", "#3a6ff7", "#a35cf5", "#f25fa6", "#f2f2f2"];
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+
+// ---------- seeded noise so every player gets the same starting world ----------
+function hash(x, z, s) { let h = (x * 374761393 + z * 668265263 + s * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; }
+function smooth(t) { return t * t * (3 - 2 * t); }
+function vnoise(x, z, scale, s) {
+  const fx = x / scale, fz = z / scale, x0 = Math.floor(fx), z0 = Math.floor(fz);
+  const tx = smooth(fx - x0), tz = smooth(fz - z0);
+  const a = hash(x0, z0, s), b = hash(x0 + 1, z0, s), c = hash(x0, z0 + 1, s), d = hash(x0 + 1, z0 + 1, s);
+  return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
+}
+
+const world = new Uint8Array(W * H * D);
+const idx = (x, y, z) => (y * D + z) * W + x;
+function get(x, y, z) { if (x < 0 || z < 0 || x >= W || z >= D || y < 0) return STONE; if (y >= H) return AIR; return world[idx(x, y, z)]; }
+function setRaw(x, y, z, t) { if (x < 0 || z < 0 || x >= W || z >= D || y < 0 || y >= H) return false; world[idx(x, y, z)] = t; return true; }
+
+function generate() {
+  const heights = [];
+  for (let x = 0; x < W; x++) for (let z = 0; z < D; z++) {
+    const n = vnoise(x, z, 22, 1) * 0.65 + vnoise(x, z, 9, 2) * 0.35;
+    const h = Math.floor(8 + n * 12);
+    heights[x * D + z] = h;
+    for (let y = 0; y <= h; y++) {
+      let t = STONE;
+      if (y === h) t = h <= SEA ? SAND : GRASS;
+      else if (y > h - 3) t = h <= SEA ? SAND : DIRT;
+      setRaw(x, y, z, t);
+    }
+  }
+  // trees on a coarse grid, jittered
+  for (let gx = 3; gx < W - 3; gx += 7) for (let gz = 3; gz < D - 3; gz += 7) {
+    if (hash(gx, gz, 7) < 0.45) continue;
+    const x = gx + Math.floor(hash(gx, gz, 8) * 4) - 1, z = gz + Math.floor(hash(gx, gz, 9) * 4) - 1;
+    const h = heights[x * D + z];
+    if (get(x, h, z) !== GRASS) continue;
+    const th = 4 + Math.floor(hash(x, z, 10) * 2);
+    for (let y = 1; y <= th; y++) setRaw(x, h + y, z, LOG);
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = th - 2; dy <= th + 1; dy++) {
+      const r = Math.abs(dx) + Math.abs(dz) + Math.max(0, dy - th);
+      if (r > 3 || (dy === th + 1 && r > 1)) continue;
+      if (get(x + dx, h + dy, z + dz) === AIR) setRaw(x + dx, h + dy, z + dz, LEAVES);
+    }
+  }
+  return heights;
+}
+const heights = generate();
+
+// ---------- pixel textures, drawn once into an atlas ----------
+const TILE = 16, ACOLS = 8, AROWS = 2;
+const T = { grassTop: 0, grassSide: 1, dirt: 2, stone: 3, logSide: 4, logTop: 5, leaves: 6, sand: 7, planks: 8, brick: 9, glass: 10 };
+const atlas = document.createElement("canvas");
+atlas.width = TILE * ACOLS; atlas.height = TILE * AROWS;
+const actx = atlas.getContext("2d");
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+function px(tile, x, y, rgb, a = 1) { const c = tile % ACOLS, r = Math.floor(tile / ACOLS); actx.fillStyle = `rgba(${rgb[0]|0},${rgb[1]|0},${rgb[2]|0},${a})`; actx.fillRect(c * TILE + x, r * TILE + y, 1, 1); }
+function speckle(tile, base, vary, seed) { const r = rng(seed); for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const k = 1 + (r() - 0.5) * vary; px(tile, x, y, base.map(v => Math.min(255, v * k))); } }
+speckle(T.grassTop, [104, 176, 60], 0.35, 1);
+speckle(T.dirt, [134, 96, 67], 0.35, 2);
+speckle(T.grassSide, [134, 96, 67], 0.35, 3);
+{ const r = rng(4); for (let x = 0; x < TILE; x++) { const d = 3 + Math.floor(r() * 3); for (let y = 0; y < d; y++) px(T.grassSide, x, y, [104 * (0.85 + r() * 0.3), 176 * (0.85 + r() * 0.3), 60]); } }
+speckle(T.stone, [125, 125, 128], 0.3, 5);
+{ const r = rng(6); for (let i = 0; i < 14; i++) px(T.stone, Math.floor(r() * 16), Math.floor(r() * 16), [90, 90, 94]); }
+{ const r = rng(7); for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const stripe = (x % 4 === 0) ? 0.75 : 1; const k = stripe * (0.9 + r() * 0.2); px(T.logSide, x, y, [104 * k, 80 * k, 48 * k]); } }
+{ const r = rng(8); for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const d = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5)); const ring = Math.floor(d) % 3 === 0 ? 0.82 : 1; const bark = d > 6.5; const k = ring * (0.92 + r() * 0.16); px(T.logTop, x, y, bark ? [104 * k, 80 * k, 48 * k] : [176 * k, 140 * k, 86 * k]); } }
+{ const r = rng(9); for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { if (r() < 0.18) continue; const k = 0.7 + r() * 0.5; px(T.leaves, x, y, [58 * k, 140 * k, 44 * k]); } }
+speckle(T.sand, [222, 208, 150], 0.15, 10);
+{ const r = rng(11); for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const seam = y % 4 === 3 || ((x + (Math.floor(y / 4) % 2) * 8) % 16 === 0); const k = seam ? 0.65 : 0.92 + r() * 0.14; px(T.planks, x, y, [178 * k, 138 * k, 82 * k]); } }
+{ const r = rng(12); for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const row = Math.floor(y / 4); const mortar = y % 4 === 3 || ((x + (row % 2) * 4) % 8 === 7); const k = 0.88 + r() * 0.2; px(T.brick, x, y, mortar ? [190, 182, 170] : [160 * k, 70 * k, 52 * k]); } }
+for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const edge = x === 0 || y === 0 || x === 15 || y === 15; const glint = (x - y === 4 || x - y === 6) && x > 3 && x < 13; if (edge) px(T.glass, x, y, [210, 236, 245]); else if (glint) px(T.glass, x, y, [235, 250, 255], 0.9); }
+
+function faceTile(t, face) { // face: 0 -x,1 +x,2 -y,3 +y,4 -z,5 +z
+  switch (t) {
+    case GRASS: return face === 3 ? T.grassTop : face === 2 ? T.dirt : T.grassSide;
+    case DIRT: return T.dirt; case STONE: return T.stone; case SAND: return T.sand;
+    case LOG: return face === 2 || face === 3 ? T.logTop : T.logSide;
+    case LEAVES: return T.leaves; case PLANKS: return T.planks; case BRICK: return T.brick; case GLASS: return T.glass;
+  }
+  return T.stone;
+}
+
+// ---------- three.js scene ----------
+const canvas = document.getElementById("game");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const SKY = new THREE.Color("#8fc7ff");
+scene.background = SKY;
+scene.fog = new THREE.Fog(SKY, 34, 80);
+const camera = new THREE.PerspectiveCamera(72, 1, 0.08, 200);
+camera.rotation.order = "YXZ";
+
+const texture = new THREE.CanvasTexture(atlas);
+texture.magFilter = THREE.NearestFilter; texture.minFilter = THREE.NearestFilter;
+const material = new THREE.MeshBasicMaterial({ map: texture, vertexColors: true, alphaTest: 0.5, side: THREE.FrontSide });
+
+const FACES = [
+  { n: [-1, 0, 0], c: [[0,1,0,0,1],[0,0,0,0,0],[0,1,1,1,1],[0,0,1,1,0]], shade: 0.78 },
+  { n: [1, 0, 0],  c: [[1,1,1,0,1],[1,0,1,0,0],[1,1,0,1,1],[1,0,0,1,0]], shade: 0.78 },
+  { n: [0, -1, 0], c: [[1,0,1,1,0],[0,0,1,0,0],[1,0,0,1,1],[0,0,0,0,1]], shade: 0.5 },
+  { n: [0, 1, 0],  c: [[0,1,1,1,1],[1,1,1,0,1],[0,1,0,1,0],[1,1,0,0,0]], shade: 1.0 },
+  { n: [0, 0, -1], c: [[1,0,0,0,0],[0,0,0,1,0],[1,1,0,0,1],[0,1,0,1,1]], shade: 0.66 },
+  { n: [0, 0, 1],  c: [[0,0,1,0,0],[1,0,1,1,0],[0,1,1,0,1],[1,1,1,1,1]], shade: 0.9 },
+];
+const chunkMeshes = new Map();
+const dirty = new Set();
+function markDirty(x, z) {
+  const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
+  dirty.add(cx + "," + cz);
+  const lx = x - cx * CS, lz = z - cz * CS;
+  if (lx === 0 && cx > 0) dirty.add((cx - 1) + "," + cz);
+  if (lx === CS - 1 && (cx + 1) * CS < W) dirty.add((cx + 1) + "," + cz);
+  if (lz === 0 && cz > 0) dirty.add(cx + "," + (cz - 1));
+  if (lz === CS - 1 && (cz + 1) * CS < D) dirty.add(cx + "," + (cz + 1));
+}
+function buildChunk(cx, cz) {
+  const pos = [], uv = [], col = [], ind = [];
+  const eps = 0.001;
+  for (let y = 0; y < H; y++) for (let z = cz * CS; z < cz * CS + CS; z++) for (let x = cx * CS; x < cx * CS + CS; x++) {
+    const t = world[idx(x, y, z)];
+    if (!t) continue;
+    for (let f = 0; f < 6; f++) {
+      const F = FACES[f];
+      const nx = x + F.n[0], ny = y + F.n[1], nz = z + F.n[2];
+      if (nx < 0 || nz < 0 || nx >= W || nz >= D) { if (ny >= 0) {} }
+      const nb = (nx < 0 || nz < 0 || nx >= W || nz >= D) ? AIR : get(nx, ny, nz);
+      if (ny < 0) continue;
+      if (!(SEETHROUGH.has(nb) && nb !== t)) continue;
+      const tile = faceTile(t, f), tc = tile % ACOLS, tr = Math.floor(tile / ACOLS);
+      const base = pos.length / 3;
+      for (const c of F.c) {
+        pos.push(x + c[0], y + c[1], z + c[2]);
+        const u = (tc + eps + c[3] * (1 - 2 * eps)) / ACOLS;
+        const v = 1 - (tr + 1 - eps - c[4] * (1 - 2 * eps)) / AROWS;
+        uv.push(u, v);
+        // a touch of depth: lower blocks slightly darker
+        const s = F.shade * (0.86 + 0.14 * Math.min(1, y / 20));
+        col.push(s, s, s);
+      }
+      ind.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+    }
+  }
+  const key = cx + "," + cz;
+  let mesh = chunkMeshes.get(key);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(ind);
+  geo.computeBoundingSphere();
+  if (mesh) { mesh.geometry.dispose(); mesh.geometry = geo; }
+  else { mesh = new THREE.Mesh(geo, material); chunkMeshes.set(key, mesh); scene.add(mesh); }
+}
+for (let cx = 0; cx < W / CS; cx++) for (let cz = 0; cz < D / CS; cz++) buildChunk(cx, cz);
+function flushDirty() { for (const k of dirty) { const [cx, cz] = k.split(",").map(Number); buildChunk(cx, cz); } dirty.clear(); }
+
+// edge of the world: a soft water plane beyond the island
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshBasicMaterial({ color: "#3d7fd1", transparent: true, opacity: 0.85 }));
+sea.rotation.x = -Math.PI / 2; sea.position.set(W / 2, SEA + 0.6, D / 2); scene.add(sea);
+// clouds
+const cloudMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85 });
+const clouds = new THREE.Group();
+{ const r = rng(77); for (let i = 0; i < 14; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(6 + r() * 10, 1.2, 4 + r() * 8), cloudMat); m.position.set(r() * 140 - 40, 34 + r() * 4, r() * 140 - 40); clouds.add(m); } }
+scene.add(clouds);
+
+// block highlight
+const hl = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)), new THREE.LineBasicMaterial({ color: "#111" }));
+hl.visible = false; scene.add(hl);
+
+// ---------- player ----------
+const P = { x: W / 2 + 0.5, y: 0, z: D / 2 + 0.5, vx: 0, vy: 0, vz: 0, yaw: Math.PI * 0.75, pitch: -0.15, onGround: false };
+function spawn() {
+  // nearest open grass to the middle of the island, so nobody spawns in a treetop
+  const top = (x, z) => { let y = H - 1; while (y > 0 && get(x, y, z) === AIR) y--; return y; };
+  // a few blocks of random spread so friends don't spawn inside each other
+  const ox = Math.floor(W / 2) + Math.floor(Math.random() * 9) - 4, oz = Math.floor(D / 2) + Math.floor(Math.random() * 9) - 4;
+  let best = null;
+  for (let r = 0; r < 20 && !best; r++) for (let dx = -r; dx <= r && !best; dx++) for (let dz = -r; dz <= r && !best; dz++) {
+    const x = ox + dx, z = oz + dz, y = top(x, z);
+    if (get(x, y, z) === GRASS) best = { x, y, z };
+  }
+  if (!best) best = { x: W >> 1, z: D >> 1, y: top(W >> 1, D >> 1) };
+  P.x = best.x + 0.5; P.z = best.z + 0.5; P.y = best.y + 1.01; P.vx = P.vy = P.vz = 0;
+}
+spawn();
+const HW = 0.3, PH = 1.8, EYE = 1.62;
+function solid(t) { return t !== AIR; }
+function collides(x, y, z) {
+  for (let bx = Math.floor(x - HW); bx <= Math.floor(x + HW - 1e-6); bx++)
+    for (let by = Math.floor(y); by <= Math.floor(y + PH - 1e-6); by++)
+      for (let bz = Math.floor(z - HW); bz <= Math.floor(z + HW - 1e-6); bz++)
+        if (solid(get(bx, by, bz))) return true;
+  return false;
+}
+function moveAxis(axis, d) {
+  if (!d) return false;
+  const steps = Math.ceil(Math.abs(d) / 0.4), s = d / steps;
+  for (let i = 0; i < steps; i++) {
+    const nx = P.x + (axis === 0 ? s : 0), ny = P.y + (axis === 1 ? s : 0), nz = P.z + (axis === 2 ? s : 0);
+    if (collides(nx, ny, nz)) {
+      if (axis === 1) { if (s < 0) { P.y = Math.floor(P.y + s) + 1; } else { P.y = Math.ceil(P.y + PH + s) - 1 - PH - 1e-4; } }
+      return true;
+    }
+    P.x = nx; P.y = ny; P.z = nz;
+  }
+  return false;
+}
+
+const keys = new Set();
+let selected = 0, playing = false, locked = false;
+function physics(dt) {
+  const fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + touchMove.y;
+  const side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + touchMove.x;
+  const speed = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 8 : 4.6;
+  const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
+  let mx = -sin * fwd + cos * side, mz = -cos * fwd - sin * side;
+  const len = Math.hypot(mx, mz); if (len > 1) { mx /= len; mz /= len; }
+  const accel = P.onGround ? 14 : 4;
+  P.vx += (mx * speed - P.vx) * Math.min(1, accel * dt);
+  P.vz += (mz * speed - P.vz) * Math.min(1, accel * dt);
+  P.vy -= 28 * dt; if (P.vy < -40) P.vy = -40;
+  if ((keys.has("Space") || touchJump) && P.onGround) { P.vy = 8.6; P.onGround = false; }
+  if (moveAxis(0, P.vx * dt)) P.vx = 0;
+  if (moveAxis(2, P.vz * dt)) P.vz = 0;
+  const hitY = moveAxis(1, P.vy * dt);
+  P.onGround = hitY && P.vy < 0;
+  if (hitY) P.vy = 0;
+  if (P.y < -10) { spawn(); toast("Back to spawn"); }
+}
+
+// ---------- block picking ----------
+function raycast(maxD = 6) {
+  const o = camera.position, dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+  let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z);
+  const sx = Math.sign(dir.x), sy = Math.sign(dir.y), sz = Math.sign(dir.z);
+  const tdx = Math.abs(1 / dir.x), tdy = Math.abs(1 / dir.y), tdz = Math.abs(1 / dir.z);
+  let tmx = sx > 0 ? (x + 1 - o.x) * tdx : (o.x - x) * tdx;
+  let tmy = sy > 0 ? (y + 1 - o.y) * tdy : (o.y - y) * tdy;
+  let tmz = sz > 0 ? (z + 1 - o.z) * tdz : (o.z - z) * tdz;
+  let nx = 0, ny = 0, nz = 0, t = 0;
+  while (t <= maxD) {
+    if (y >= 0 && y < H && x >= 0 && z >= 0 && x < W && z < D && get(x, y, z) !== AIR) return { x, y, z, nx, ny, nz };
+    if (tmx < tmy && tmx < tmz) { x += sx; t = tmx; tmx += tdx; nx = -sx; ny = 0; nz = 0; }
+    else if (tmy < tmz) { y += sy; t = tmy; tmy += tdy; nx = 0; ny = -sy; nz = 0; }
+    else { z += sz; t = tmz; tmz += tdz; nx = 0; ny = 0; nz = -sz; }
+  }
+  return null;
+}
+function edit(x, y, z, t, mine) {
+  if (y <= 0 || y >= H || x < 0 || z < 0 || x >= W || z >= D) return false;
+  if (get(x, y, z) === t) return false;
+  setRaw(x, y, z, t); markDirty(x, z);
+  if (mine) net.saveEdit(x, y, z, t);
+  return true;
+}
+function breakBlock() { const h = raycast(); if (h) { edit(h.x, h.y, h.z, AIR, true); pop(); } }
+function placeBlock() {
+  const h = raycast(); if (!h) return;
+  const x = h.x + h.nx, y = h.y + h.ny, z = h.z + h.nz;
+  if (get(x, y, z) !== AIR) return;
+  // don't place inside yourself
+  if (x + 1 > P.x - HW && x < P.x + HW && z + 1 > P.z - HW && z < P.z + HW && y + 1 > P.y && y < P.y + PH) return;
+  edit(x, y, z, HOTBAR[selected], true); pop();
+}
+
+// tiny click sound, started only after the player has interacted
+let actx2 = null;
+function pop() {
+  try {
+    actx2 = actx2 || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx2.createOscillator(), g = actx2.createGain();
+    o.type = "square"; o.frequency.value = 180 + Math.random() * 80;
+    g.gain.setValueAtTime(0.05, actx2.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, actx2.currentTime + 0.08);
+    o.connect(g).connect(actx2.destination); o.start(); o.stop(actx2.currentTime + 0.09);
+  } catch (e) {}
+}
+
+// ---------- HUD ----------
+const hotbar = document.getElementById("hotbar");
+HOTBAR.forEach((t, i) => {
+  const b = document.createElement("button"); b.type = "button"; b.className = "slot"; b.title = NAMES[t]; b.setAttribute("aria-label", NAMES[t]);
+  const c = document.createElement("canvas"); c.width = TILE; c.height = TILE;
+  const tile = faceTile(t, 1); c.getContext("2d").drawImage(atlas, (tile % ACOLS) * TILE, Math.floor(tile / ACOLS) * TILE, TILE, TILE, 0, 0, TILE, TILE);
+  const n = document.createElement("small"); n.textContent = i + 1;
+  b.append(c, n); b.addEventListener("click", (e) => { e.stopPropagation(); select(i); });
+  hotbar.append(b);
+});
+const blockname = document.getElementById("blockname");
+let nameTimer;
+function select(i) {
+  selected = (i + HOTBAR.length) % HOTBAR.length;
+  [...hotbar.children].forEach((b, j) => b.classList.toggle("sel", j === selected));
+  blockname.textContent = NAMES[HOTBAR[selected]]; blockname.style.opacity = 1;
+  clearTimeout(nameTimer); nameTimer = setTimeout(() => blockname.style.opacity = 0, 1200);
+  net.presence();
+}
+const toastEl = document.getElementById("toast");
+let toastTimer;
+function toast(msg) { toastEl.textContent = msg; toastEl.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600); }
+
+// ---------- menu ----------
+const menu = document.getElementById("menu"), nameIn = document.getElementById("pname"), colorsEl = document.getElementById("colors");
+const me = { name: store.get("gc.name") || "", color: store.get("gc.color") || COLORS[Math.floor(Math.random() * COLORS.length)] };
+nameIn.value = me.name;
+COLORS.forEach((c) => {
+  const b = document.createElement("button"); b.type = "button"; b.className = "sw"; b.style.background = c; b.setAttribute("aria-label", "Color " + c);
+  b.setAttribute("aria-pressed", c === me.color); b.addEventListener("click", () => { me.color = c; [...colorsEl.children].forEach(x => x.setAttribute("aria-pressed", x === b)); });
+  colorsEl.append(b);
+});
+const isTouch = matchMedia("(pointer: coarse)").matches;
+document.getElementById("menuform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  me.name = (nameIn.value.trim() || "Builder" + Math.floor(Math.random() * 900 + 100)).slice(0, 16);
+  store.set("gc.name", me.name); store.set("gc.color", me.color);
+  menu.hidden = true; playing = true;
+  document.getElementById("touch").hidden = !isTouch;
+  net.presence();
+  if (net.p2p) p2pRender();
+  if (!isTouch) { try { const r = canvas.requestPointerLock && canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) {} }
+  canvas.focus();
+  toast(net.live ? "Welcome, " + me.name + "!" : "Welcome, " + me.name + ". Building solo.");
+});
+function openMenu() { playing = false; menu.hidden = false; keys.clear(); if (document.pointerLockElement) document.exitPointerLock(); }
+
+// ---------- input ----------
+document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === canvas; });
+addEventListener("keydown", (e) => {
+  if (!playing) return;
+  if (e.code === "Escape") { openMenu(); return; }
+  if (/^Digit[1-9]$/.test(e.code)) select(Number(e.code.slice(5)) - 1);
+  keys.add(e.code);
+  if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+});
+addEventListener("keyup", (e) => keys.delete(e.code));
+addEventListener("blur", () => keys.clear());
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("wheel", (e) => { if (playing) { e.preventDefault(); select(selected + (e.deltaY > 0 ? 1 : -1)); } }, { passive: false });
+function look(dx, dy, k) { P.yaw -= dx * k; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - dy * k)); }
+// some browsers report a huge one-off jump when the pointer locks; skip those
+addEventListener("mousemove", (e) => { if (playing && locked && Math.abs(e.movementX) < 250 && Math.abs(e.movementY) < 250) look(e.movementX, e.movementY, 0.0024); });
+// mouse: with pointer lock clicks act at the crosshair; without it, drag to look and click to act
+let drag = null;
+canvas.addEventListener("mousedown", (e) => {
+  if (!playing) return;
+  if (locked) { if (e.button === 0) breakBlock(); else if (e.button === 2) placeBlock(); return; }
+  drag = { x: e.clientX, y: e.clientY, moved: 0, button: e.button };
+});
+addEventListener("mousemove", (e) => { if (drag && !locked) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; look(dx, dy, 0.005); } });
+addEventListener("mouseup", (e) => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.moved < 6) {
+    if (d.button === 0) breakBlock(); else if (d.button === 2) placeBlock();
+    if (!isTouch && canvas.requestPointerLock) { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) {} }
+  }
+});
+// touch: left half moves, right half looks, tap breaks
+const touchMove = { x: 0, y: 0 }; let touchJump = false;
+const touches = new Map();
+canvas.addEventListener("touchstart", (e) => { for (const t of e.changedTouches) touches.set(t.identifier, { sx: t.clientX, sy: t.clientY, x: t.clientX, y: t.clientY, left: t.clientX < innerWidth / 2, moved: 0, at: performance.now() }); e.preventDefault(); }, { passive: false });
+canvas.addEventListener("touchmove", (e) => {
+  for (const t of e.changedTouches) { const s = touches.get(t.identifier); if (!s) continue;
+    const dx = t.clientX - s.x, dy = t.clientY - s.y; s.moved += Math.abs(dx) + Math.abs(dy); s.x = t.clientX; s.y = t.clientY;
+    if (s.left) { touchMove.x = Math.max(-1, Math.min(1, (t.clientX - s.sx) / 50)); touchMove.y = Math.max(-1, Math.min(1, -(t.clientY - s.sy) / 50)); }
+    else look(dx, dy, 0.006); }
+  e.preventDefault();
+}, { passive: false });
+function touchEnd(e) { for (const t of e.changedTouches) { const s = touches.get(t.identifier); touches.delete(t.identifier); if (!s) continue; if (s.left) { touchMove.x = 0; touchMove.y = 0; } else if (s.moved < 10 && performance.now() - s.at < 300 && playing) breakBlock(); } }
+canvas.addEventListener("touchend", touchEnd); canvas.addEventListener("touchcancel", touchEnd);
+const tj = document.getElementById("tjump");
+tj.addEventListener("touchstart", (e) => { touchJump = true; e.preventDefault(); }, { passive: false });
+tj.addEventListener("touchend", () => { touchJump = false; });
+document.getElementById("tbreak").addEventListener("click", breakBlock);
+document.getElementById("tplace").addEventListener("click", placeBlock);
+
+// ---------- other players ----------
+const avatars = new Map();
+function nameSprite(text) {
+  const c = document.createElement("canvas"); c.width = 256; c.height = 48; const x = c.getContext("2d");
+  x.font = "700 28px 'Pixelify Sans', monospace"; const w = Math.min(250, x.measureText(text).width + 20);
+  x.fillStyle = "rgba(10,12,20,0.6)"; x.fillRect((256 - w) / 2, 4, w, 40);
+  x.fillStyle = "#fff"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(text, 128, 25);
+  const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  s.scale.set(2, 0.375, 1); s.renderOrder = 10; return s;
+}
+function makeAvatar(color, name) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 0.32), new THREE.MeshBasicMaterial({ color }));
+  body.position.y = 1.05;
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.68, 0.3), new THREE.MeshBasicMaterial({ color: "#2d3550" }));
+  legs.position.y = 0.34;
+  const head = new THREE.Group(); head.position.y = 1.62;
+  const skull = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: "#e8b48a" }));
+  const eyes = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.08, 0.02), new THREE.MeshBasicMaterial({ color: "#1b1b2a" }));
+  eyes.position.set(0, 0.04, -0.26);
+  head.add(skull, eyes);
+  const label = nameSprite(name); label.position.y = 2.25;
+  g.add(body, legs, head, label);
+  scene.add(g);
+  return { g, head, body, label, color, name, tx: 0, ty: 0, tz: 0, tyaw: 0, tpitch: 0 };
+}
+function syncAvatars(peers) {
+  const seen = new Set();
+  for (const p of peers) {
+    if (p.sameTab || p.kind !== "viewer") continue;
+    const pr = p.presence || {};
+    if (!Array.isArray(pr.p) || pr.p.length !== 3 || !pr.p.every(Number.isFinite)) continue;
+    seen.add(p.peer);
+    const name = typeof pr.n === "string" ? pr.n.slice(0, 16) : "Builder";
+    const color = typeof pr.c === "string" && /^#[0-9a-f]{6}$/i.test(pr.c) ? pr.c : "#aaaaaa";
+    let a = avatars.get(p.peer);
+    if (a && (a.name !== name || a.color !== color)) { scene.remove(a.g); a = null; }
+    if (!a) { a = makeAvatar(color, name); a.g.position.set(pr.p[0], pr.p[1], pr.p[2]); avatars.set(p.peer, a); }
+    a.tx = pr.p[0]; a.ty = pr.p[1]; a.tz = pr.p[2];
+    if (Array.isArray(pr.r)) { a.tyaw = +pr.r[0] || 0; a.tpitch = +pr.r[1] || 0; }
+  }
+  for (const [k, a] of avatars) if (!seen.has(k)) { scene.remove(a.g); avatars.delete(k); }
+  renderPlayers(peers);
+}
+function lerpAngle(a, b, t) { let d = ((b - a + Math.PI) % (2 * Math.PI)) - Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return a + d * t; }
+function animateAvatars(dt) {
+  const k = Math.min(1, dt * 12);
+  for (const a of avatars.values()) {
+    a.g.position.x += (a.tx - a.g.position.x) * k; a.g.position.y += (a.ty - a.g.position.y) * k; a.g.position.z += (a.tz - a.g.position.z) * k;
+    a.g.rotation.y = lerpAngle(a.g.rotation.y, a.tyaw, k); a.head.rotation.x = a.tpitch;
+  }
+}
+const playersEl = document.getElementById("players");
+function renderPlayers(peers) {
+  const list = peers.filter(p => p.kind === "viewer" && p.presence && typeof p.presence.n === "string");
+  playersEl.hidden = list.length === 0;
+  playersEl.replaceChildren(...list.map(p => {
+    const s = document.createElement("span"); const i = document.createElement("i");
+    i.style.background = /^#[0-9a-f]{6}$/i.test(p.presence.c) ? p.presence.c : "#aaa";
+    s.append(i, document.createTextNode(p.presence.n.slice(0, 16) + (p.sameTab ? " (you)" : "")));
+    return s;
+  }));
+  const n = list.length;
+  if (net.live) setNet(true, n <= 1 ? "Online · just you so far" : `Online · ${n} builders here`);
+}
+
+// ---------- networking: shared world in db, live players in room ----------
+const netdot = document.getElementById("netdot"), nettext = document.getElementById("nettext"), mpnote = document.getElementById("mpnote");
+function setNet(live, text) { netdot.classList.toggle("live", live); nettext.textContent = text; }
+const SOLO_KEY = "gc.solo-edits";
+const net = {
+  live: false, room: null, db: null,
+  known: new Set(), pending: new Map(), writing: new Set(),
+  lastSent: "",
+  presence() {
+    if (this.p2p) return p2pPresence();
+    if (!this.room || !playing) return;
+    const pr = { n: me.name, c: me.color, p: [+P.x.toFixed(2), +P.y.toFixed(2), +P.z.toFixed(2)], r: [+P.yaw.toFixed(2), +P.pitch.toFixed(2)], b: HOTBAR[selected] };
+    const s = JSON.stringify(pr);
+    if (s === this.lastSent) return;
+    this.lastSent = s;
+    this.room.presence(pr).catch(() => {});
+  },
+  saveEdit(x, y, z, t) {
+    if (this.p2p) return p2pEdit(x, y, z, t);
+    if (!this.db) { soloEdits[x + "_" + y + "_" + z] = t; store.set(SOLO_KEY, JSON.stringify(soloEdits)); return; }
+    const id = "c" + Math.floor(x / CS) + "_" + Math.floor(z / CS);
+    if (!this.pending.has(id)) this.pending.set(id, {});
+    this.pending.get(id)["k" + x + "_" + y + "_" + z] = t;
+    this.flush(id);
+  },
+  async flush(id) {
+    if (this.writing.has(id)) return;
+    const batch = this.pending.get(id); if (!batch) return;
+    this.pending.delete(id); this.writing.add(id);
+    const ref = this.db.doc("chunks/" + id);
+    try {
+      if (this.known.has(id)) await ref.update({ e: batch });
+      else {
+        const snap = await ref.get();
+        if (snap.exists) await ref.update({ e: batch }); else await ref.set({ e: batch });
+        this.known.add(id);
+      }
+    } catch (err) {
+      if (err && (err.code === "not_granted" || err.code === "permission_denied")) toast("You can look around, but this world is read-only for you");
+      else toast("Couldn't save that block. Try again in a moment.");
+    }
+    this.writing.delete(id);
+    if (this.pending.has(id)) this.flush(id);
+  }
+};
+let soloEdits = {};
+function applyEdits(map) {
+  for (const k in map) {
+    const m = /^k?(\d+)_(\d+)_(\d+)$/.exec(k); if (!m) continue;
+    const t = map[k] | 0; if (t < 0 || t > 9) continue;
+    const x = +m[1], y = +m[2], z = +m[3];
+    if (get(x, y, z) !== t && setRaw(x, y, z, t)) markDirty(x, z);
+  }
+}
+// solo progress first, so the page is useful before (or without) the shared world
+try { soloEdits = JSON.parse(store.get(SOLO_KEY) || "{}") || {}; } catch (e) { soloEdits = {}; }
+
+
+// ---------- public version: players connect straight to each other (no server) ----------
+// Each player keeps the whole list of edits with a timestamp; newer edits win, and
+// whoever is online hands their list to anyone who joins, so the world survives as
+// long as someone who has played it comes back.
+const P2P_KEY = "gc.p2p-edits", WORLD = "world-1";
+let p2pEdits = {}, p2pPeers = new Map(), p2pSend = null, p2pLastPres = "", p2pPresAt = 0, p2pSaveTimer = null;
+function p2pValidKey(k) { const m = /^(\d+)_(\d+)_(\d+)$/.exec(k); return m && +m[1] < W && +m[2] < H && +m[3] < D ? m : null; }
+function p2pMerge(map) {
+  if (!map || typeof map !== "object") return 0;
+  let n = 0;
+  for (const k in map) {
+    const v = map[k], m = p2pValidKey(k);
+    if (!m || !Array.isArray(v)) continue;
+    const t = v[0] | 0, ts = +v[1];
+    if (t < 0 || t > 9 || !Number.isFinite(ts)) continue;
+    const cur = p2pEdits[k];
+    if (cur && cur[1] >= ts) continue;
+    p2pEdits[k] = [t, ts]; n++;
+    if (get(+m[1], +m[2], +m[3]) !== t && setRaw(+m[1], +m[2], +m[3], t)) markDirty(+m[1], +m[3]);
+  }
+  if (n) p2pSaveSoon();
+  return n;
+}
+function p2pSaveSoon() { clearTimeout(p2pSaveTimer); p2pSaveTimer = setTimeout(() => store.set(P2P_KEY, JSON.stringify(p2pEdits)), 800); }
+function p2pEdit(x, y, z, t) {
+  const k = x + "_" + y + "_" + z, e = [t, Date.now()];
+  p2pEdits[k] = e; p2pSaveSoon();
+  if (p2pSend) p2pSend.edit.send({ [k]: e }).catch(() => {});
+}
+function p2pPresence(force) {
+  if (!p2pSend || !playing) return;
+  const pr = { n: me.name, c: me.color, p: [+P.x.toFixed(2), +P.y.toFixed(2), +P.z.toFixed(2)], r: [+P.yaw.toFixed(2), +P.pitch.toFixed(2)], b: HOTBAR[selected] };
+  const s = JSON.stringify(pr), now = performance.now();
+  if (!force && s === p2pLastPres && now - p2pPresAt < 2000) return; // heartbeat every 2s so newcomers see you
+  p2pLastPres = s; p2pPresAt = now;
+  p2pSend.pos.send(pr).catch(() => {});
+}
+function p2pRender() {
+  const list = [{ peer: "me", sameTab: true, kind: "viewer", presence: playing ? { n: me.name, c: me.color } : {} }];
+  for (const [id, pr] of p2pPeers) list.push({ peer: id, sameTab: false, kind: "viewer", presence: pr });
+  syncAvatars(list);
+}
+async function connectP2P() {
+  try { p2pEdits = JSON.parse(store.get(P2P_KEY) || "{}") || {}; } catch (e) { p2pEdits = {}; }
+  const mine = p2pEdits; p2pEdits = {}; p2pMerge(mine); flushDirty();
+  net.p2p = true;
+  setNet(false, "Connecting…"); mpnote.textContent = "Looking for other players…";
+  let lib;
+  try { lib = await import("https://cdn.jsdelivr.net/npm/trystero@0.25.4/+esm"); }
+  catch (e) { setNet(false, "Solo world"); mpnote.textContent = "Couldn't reach the internet, so you're building solo. Your builds are saved on this device."; return; }
+  const cfg = { appId: "gamacraft-by-gama" };
+  if (Array.isArray(window.GAMACRAFT_RELAYS)) cfg.relayConfig = { urls: window.GAMACRAFT_RELAYS }; // for local testing
+  const room = lib.joinRoom(cfg, WORLD);
+  const pos = room.makeAction("pos"), edit = room.makeAction("edit"), sync = room.makeAction("sync");
+  p2pSend = { pos, edit, sync };
+  net.live = true;
+  const status = () => { const n = p2pPeers.size + 1; setNet(true, n <= 1 ? "Online · waiting for friends" : `Online · ${n} builders here`); };
+  pos.onMessage = (pr, ctx) => {
+    if (!pr || typeof pr !== "object") return;
+    const isNew = !p2pPeers.has(ctx.peerId);
+    p2pPeers.set(ctx.peerId, { n: typeof pr.n === "string" ? pr.n : "Builder", c: pr.c, p: pr.p, r: pr.r });
+    p2pRender(); if (isNew) { status(); toast((typeof pr.n === "string" ? pr.n.slice(0, 16) : "Someone") + " joined"); }
+  };
+  edit.onMessage = (map) => p2pMerge(map);
+  sync.onMessage = (map) => p2pMerge(map);
+  room.onPeerJoin = (id) => { sync.send(p2pEdits, { target: id }).catch(() => {}); p2pPresence(true); };
+  room.onPeerLeave = (id) => {
+    const pr = p2pPeers.get(id); p2pPeers.delete(id); p2pRender(); status();
+    if (pr) toast(String(pr.n).slice(0, 16) + " left");
+  };
+  addEventListener("pagehide", () => { try { room.leave(); } catch (e) {} });
+  status(); p2pRender();
+  mpnote.textContent = "Online. Anyone who opens this page plays in the same world.";
+}
+
+async function connect() {
+  const c = window.claude;
+  if (!c || typeof c.use !== "function") {
+    if (/^https?:$/.test(location.protocol)) return connectP2P();
+    applyEdits(soloEdits); flushDirty(); mpnote.textContent = "Solo world. Your builds are saved on this device."; return;
+  }
+  const [db, room] = await Promise.all([c.use("db").catch(() => null), c.use("room").catch(() => null)]);
+  if (db) {
+    net.db = db;
+    db.collection("chunks").onSnapshot((snap) => {
+      for (const ch of snap.docChanges()) {
+        if (ch.type === "removed") continue;
+        net.known.add(ch.doc.id);
+        const data = ch.doc.data ? ch.doc.data() : ch.doc.data;
+        if (data && data.e && typeof data.e === "object") applyEdits(data.e);
+      }
+    }, () => { toast("Lost the link to the shared world. Reload to reconnect."); });
+  } else { applyEdits(soloEdits); flushDirty(); }
+  if (room) {
+    net.room = room; net.live = true;
+    setNet(true, "Online");
+    room.onPeers((ch) => syncAvatars(ch.peers), () => { net.live = false; setNet(false, db ? "Shared world" : "Solo world"); });
+    room.onConnection((ok) => { if (net.live) setNet(ok, ok ? nettext.textContent.replace(/^Reconnecting.*/, "Online") : "Reconnecting…"); if (ok) { net.lastSent = ""; net.presence(); } });
+    mpnote.textContent = db ? "Online. Everyone with this page open plays in the same world." : "Online. You'll see other players move.";
+  } else {
+    setNet(!!db, db ? "Shared world" : "Solo world");
+    mpnote.textContent = db ? "Shared world. Blocks you place are saved for everyone." : "Solo world. Your builds are saved on this device.";
+  }
+}
+select(0);
+connect();
+
+// ---------- loop ----------
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener("resize", resize); resize();
+let last = performance.now(), netAcc = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (playing) physics(dt);
+  if (dirty.size) flushDirty();
+  camera.position.set(P.x, P.y + EYE, P.z);
+  camera.rotation.set(P.pitch, P.yaw, 0);
+  if (!playing) P.yaw += dt * 0.05; // slow pan behind the menu
+  const h = playing ? raycast() : null;
+  hl.visible = !!h; if (h) hl.position.set(h.x + 0.5, h.y + 0.5, h.z + 0.5);
+  clouds.position.x = (now / 1000 * 0.6) % 60;
+  animateAvatars(dt);
+  netAcc += dt; if (netAcc > 0.08) { netAcc = 0; net.presence(); }
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
