@@ -1,0 +1,7 @@
+{
+  "name": "gamacraft",
+  "version": "0.1.0",
+  "description": "Play Gamacraft, a multiplayer block game, while Claude works: a Play link above the prompt during each turn, plus /play",
+  "author": { "name": "Gama" },
+  "types": "./types/index.d.ts"
+}

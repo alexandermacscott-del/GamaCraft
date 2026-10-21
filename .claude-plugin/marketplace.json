@@ -1,0 +1,5 @@
+{
+  "name": "gamacraft",
+  "owner": { "name": "Gama" },
+  "plugins": [{ "name": "gamacraft", "source": "./" }]
+}
