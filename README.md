@@ -17,7 +17,11 @@ Players connect straight to each other through public relays, so there's no game
 
 ## Play button for Claude Code
 
-This repository is also a Claude Code plugin. Once it's installed, a **Play Gamacraft** link shows above your prompt while Claude is working, and `/play` gives you the link any time.
+This repository is also a Claude Code plugin. Once it's installed, Gamacraft opens in your browser by itself when Claude starts working (at most once every 20 minutes), and a **Play Gamacraft** link shows above your prompt while Claude works.
+
+- `/play` opens the game right now
+- `/play off` stops it opening by itself
+- `/play on` turns that back on
 
 At the prompt of a Claude Code session:
 

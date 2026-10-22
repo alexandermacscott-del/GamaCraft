@@ -1,5 +1,13 @@
 {
   "name": "gamacraft",
-  "owner": { "name": "Gama" },
-  "plugins": [{ "name": "gamacraft", "source": "./" }]
+  "owner": {
+    "name": "Gama"
+  },
+  "plugins": [
+    {
+      "name": "gamacraft",
+      "source": "./"
+    }
+  ],
+  "description": "Gamacraft: a multiplayer block game to play while Claude works"
 }
